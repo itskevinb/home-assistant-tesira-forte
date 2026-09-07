@@ -2,6 +2,9 @@ name: Release
 on:
   release:
     types: [published]
+permissions:
+  contents: write
+
 jobs:
   zip:
     runs-on: ubuntu-latest
