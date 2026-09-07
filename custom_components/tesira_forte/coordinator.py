@@ -10,7 +10,7 @@ import logging
 from homeassistant.core import HomeAssistant, callback
 
 from .const import (
-    DESIGN,
+    BLOCK_KINDS,
     FAULT_POLL_INTERVAL,
     GAIN_MAX,
     GAIN_MIN,
@@ -42,7 +42,7 @@ class ControlSpec:
     mode: str | None = None
     state_class: str | None = None
     rate_ms: int | None = None
-    subscribable: bool = True  # AecInput `gain` is the one attribute that isn't
+    subscribable: bool = True  # AEC/Mic-Line input `gain` is the one that isn't
 
     @property
     def token(self) -> str:
@@ -66,56 +66,98 @@ def _switch(block: str, attr: str, idx: tuple[int, ...], name: str,
     return ControlSpec("switch", block, attr, idx, name, icon=icon)
 
 
-def build_specs() -> list[ControlSpec]:
-    """Expand DESIGN into the full entity list."""
+class DesignError(Exception):
+    """The configured design list is malformed."""
+
+
+def validate_design(design: object) -> list[dict]:
+    """Type/shape-check a user-supplied design list; raise DesignError if bad."""
+    if not isinstance(design, list) or not design:
+        raise DesignError("design must be a non-empty list of block objects")
+    seen: set[str] = set()
+    out: list[dict] = []
+    for i, blk in enumerate(design):
+        if not isinstance(blk, dict):
+            raise DesignError(f"block {i} is not an object")
+        tag, kind = blk.get("tag"), blk.get("kind")
+        if not isinstance(tag, str) or not tag:
+            raise DesignError(f"block {i} is missing a string 'tag'")
+        if tag in seen:
+            raise DesignError(f"duplicate tag {tag!r}")
+        seen.add(tag)
+        if kind not in BLOCK_KINDS:
+            raise DesignError(
+                f"block {tag!r}: kind must be one of {sorted(BLOCK_KINDS)}"
+            )
+        if kind in ("aecinput", "input", "meter", "level", "mute"):
+            n = blk.get("channels")
+            if not isinstance(n, int) or not 1 <= n <= 64:
+                raise DesignError(f"block {tag!r}: 'channels' must be 1..64")
+        else:  # mixers
+            for f in ("inputs", "outputs"):
+                v = blk.get(f)
+                if not isinstance(v, int) or not 1 <= v <= 64:
+                    raise DesignError(f"block {tag!r}: '{f}' must be 1..64")
+        out.append(blk)
+    return out
+
+
+def build_specs(design: list[dict]) -> list[ControlSpec]:
+    """Expand a validated design list into the full entity list."""
     specs: list[ControlSpec] = []
-    for block, spec in DESIGN.items():
-        kind = spec["kind"]
-        if kind == "aecinput":
-            for ch in range(1, spec["channels"] + 1):
+    for blk in design:
+        tag, kind = blk["tag"], blk["kind"]
+        if kind in ("aecinput", "input"):
+            for ch in range(1, blk["channels"] + 1):
                 specs.append(ControlSpec(
-                    "number", block, "gain", (ch,), f"AEC input {ch} gain",
+                    "number", tag, "gain", (ch,), f"{tag} ch{ch} gain",
                     icon="mdi:microphone-settings", unit="dB",
                     minimum=GAIN_MIN, maximum=GAIN_MAX, step=GAIN_STEP, mode="box",
-                    subscribable=False,
+                    subscribable=False,  # AEC/Mic-Line input gain isn't subscribable
                 ))
                 specs.append(_switch(
-                    block, "phantomPower", (ch,), f"AEC input {ch} phantom power",
+                    tag, "phantomPower", (ch,), f"{tag} ch{ch} phantom power",
                     icon="mdi:flash",
                 ))
         elif kind == "meter":
-            for ch in range(1, spec["channels"] + 1):
+            for ch in range(1, blk["channels"] + 1):
                 specs.append(ControlSpec(
-                    "sensor", block, "level", (ch,), f"Meter {ch} level",
+                    "sensor", tag, "level", (ch,), f"{tag} ch{ch} level",
                     icon="mdi:sine-wave", unit="dB", state_class="measurement",
                     rate_ms=METER_RATE_MS,
                 ))
-        elif kind in ("standardmixer", "matrixmixer"):
-            n_in, n_out = spec["inputs"], spec["outputs"]
-            mix = "Mixer 1" if block == "Mixer1" else "Mixer 2"
+        elif kind == "level":
+            for ch in range(1, blk["channels"] + 1):
+                specs.append(_level(tag, "level", (ch,), f"{tag} ch{ch} level"))
+                specs.append(_switch(tag, "mute", (ch,), f"{tag} ch{ch} mute"))
+        elif kind == "mute":
+            for ch in range(1, blk["channels"] + 1):
+                specs.append(_switch(tag, "mute", (ch,), f"{tag} ch{ch} mute"))
+        else:  # standardmixer | matrixmixer
+            n_in, n_out = blk["inputs"], blk["outputs"]
             for i in range(1, n_in + 1):
-                specs.append(_level(block, "inputLevel", (i,), f"{mix} input {i} level"))
-                specs.append(_switch(block, "inputMute", (i,), f"{mix} input {i} mute"))
+                specs.append(_level(tag, "inputLevel", (i,), f"{tag} in{i} level"))
+                specs.append(_switch(tag, "inputMute", (i,), f"{tag} in{i} mute"))
             for o in range(1, n_out + 1):
-                label = f"{mix} output {o} level" if n_out > 1 else f"{mix} output level"
-                specs.append(_level(block, "outputLevel", (o,), label))
-                mlabel = f"{mix} output {o} mute" if n_out > 1 else f"{mix} output mute"
-                specs.append(_switch(block, "outputMute", (o,), mlabel))
+                lbl = f"{tag} out{o} level" if n_out > 1 else f"{tag} output level"
+                specs.append(_level(tag, "outputLevel", (o,), lbl))
+                mlbl = f"{tag} out{o} mute" if n_out > 1 else f"{tag} output mute"
+                specs.append(_switch(tag, "outputMute", (o,), mlbl))
             for i in range(1, n_in + 1):
                 for o in range(1, n_out + 1):
                     if kind == "standardmixer":
                         specs.append(_switch(
-                            block, "crosspoint", (i, o), f"{mix} route {i}→{o}",
+                            tag, "crosspoint", (i, o), f"{tag} route {i}→{o}",
                             icon="mdi:call-split",
                         ))
                     else:
                         specs.append(_level(
-                            block, "crosspointLevel", (i, o),
-                            f"{mix} crosspoint {i}→{o} level",
+                            tag, "crosspointLevel", (i, o),
+                            f"{tag} crosspoint {i}→{o} level",
                         ))
                         specs.append(_switch(
-                            block, "crosspointLevelState", (i, o),
-                            f"{mix} crosspoint {i}→{o} on", icon="mdi:call-split",
+                            tag, "crosspointLevelState", (i, o),
+                            f"{tag} crosspoint {i}→{o} on", icon="mdi:call-split",
                         ))
     return specs
 
@@ -123,11 +165,13 @@ def build_specs() -> list[ControlSpec]:
 class TesiraForte:
     """Holds the live TTP connection and the current value of every control."""
 
-    def __init__(self, hass: HomeAssistant, host: str, port: int) -> None:
+    def __init__(
+        self, hass: HomeAssistant, host: str, port: int, design: list[dict]
+    ) -> None:
         self.hass = hass
         self.host = host
         self.port = port
-        self.specs = build_specs()
+        self.specs = build_specs(design)
         self.serial: str | None = None
         self.firmware: str | None = None
         self.available = False

@@ -2,8 +2,8 @@
   "config": {
     "step": {
       "user": {
-        "title": "Biamp Tesira Forte",
-        "description": "Enter the Forte's control-network address. It speaks the Tesira Text Protocol on TCP port 23 with no authentication.",
+        "title": "Biamp Tesira",
+        "description": "Enter the Tesira's control-network address. It speaks the Tesira Text Protocol on TCP port 23 with no authentication.",
         "data": {
           "host": "Host",
           "port": "Port"
@@ -14,7 +14,22 @@
       "cannot_connect": "Could not reach the Tesira over TTP. Check the IP and that port 23 is open."
     },
     "abort": {
-      "already_configured": "This Tesira Forte is already configured."
+      "already_configured": "This Tesira is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "DSP design",
+        "description": "A JSON list of the DSP blocks to expose, each `{\"tag\": \"<instanceTag>\", \"kind\": \"<kind>\", ...}`. Kinds: aecinput, input, meter, level, mute (all take `channels`); standardmixer, matrixmixer (take `inputs` and `outputs`). Find instance tags in Tesira software (right-click a block → Properties). Leave the shipped example if you just want to try it. {error_detail}",
+        "data": {
+          "design": "Design (JSON)"
+        }
+      }
+    },
+    "error": {
+      "invalid_json": "That isn't valid JSON.",
+      "invalid_design": "The design list is invalid."
     }
   }
 }

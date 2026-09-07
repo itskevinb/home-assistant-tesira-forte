@@ -1,43 +1,91 @@
-# Biamp Tesira Forte — Home Assistant integration
+# Biamp Tesira — Home Assistant integration
 
-A native (config-flow) Home Assistant integration for the **Biamp Tesira FORTE**.
-It keeps one persistent [Tesira Text Protocol](https://support.biamp.com/Tesira/Control/Tesira_Text_Protocol) (TTP)
-session open to the DSP on TCP port 23 and mirrors its control surface into HA as
-`number`, `switch`, `sensor` and `binary_sensor` entities.
+A native (config-flow) Home Assistant integration for **Biamp Tesira** DSPs
+(built and tested on a **Tesira FORTE**). It holds one persistent
+[Tesira Text Protocol](https://support.biamp.com/Tesira/Control/Tesira_Text_Protocol)
+(TTP) session to the DSP on TCP port 23 and mirrors the blocks you name into HA
+as `number`, `switch`, `sensor` and `binary_sensor` entities.
 
-No broker, no add-on, no external bridge — it runs in-process and pushes state via
-TTP `subscribe`, so edits made in Tesira software or by logic blocks show up in HA
-too.
-
-## What it exposes
-
-The DSP layout is baked into `const.py::DESIGN` (enumerated by probing the running
-`.tmf`). The shipped map is for a Forte used as a mic preamp / small mixer:
-
-| Tesira block | HA entities |
-|---|---|
-| `AecInput1` (12-ch AEC input) | per-channel **gain** (number, 0–66 dB / 6 dB steps) + **phantom power** (switch) |
-| `AudioMeter1` (2-ch meter) | per-channel **level** (sensor, dB, 500 ms push) |
-| `Mixer1` (Standard Mixer 2→1) | input level/mute, output level/mute, route crosspoints |
-| `Mixer2` (Matrix Mixer 2→4) | input level/mute, output level/mute, per-crosspoint level + enable |
-| `DEVICE` | **Fault** (binary_sensor, `problem`), **Fault detail** + **Firmware** (sensors) |
-
-If your Forte runs a different design, edit `DESIGN` and reload the integration.
+No broker, no add-on, no external bridge — it runs in-process and pushes state
+via TTP `subscribe`, so edits made in Tesira software or by logic blocks show up
+in HA too.
 
 ## Install
 
-**HACS** → ⋮ → *Custom repositories* → add `https://github.com/itskevinb/home-assistant-tesira-forte`
-as an *Integration* → install → restart HA.
+**HACS → ⋮ → Custom repositories** → add `https://github.com/itskevinb/home-assistant-tesira-forte`
+as an **Integration** → install → restart Home Assistant.
 
 Or copy `custom_components/tesira_forte/` into your `config/custom_components/`.
 
-Then **Settings → Devices & Services → Add Integration → Biamp Tesira Forte** and
-enter the DSP's control-network IP (port 23).
+Then **Settings → Devices & Services → Add Integration → Biamp Tesira** and enter
+the DSP's control-network IP (port 23).
+
+> TTP on the Tesira is **unauthenticated**. Keep the control port on a trusted VLAN.
+
+## Telling it about your design
+
+A Tesira design is **not discoverable** over TTP — there is no "list all blocks"
+command — so you tell the integration which blocks to expose. Out of the box it
+loads a small **example design** so you can see it work; replace it with yours in
+**the integration's ⚙ → Configure** (or via YAML, below).
+
+The design is a **JSON list of blocks**, each `{"tag": "<instanceTag>", "kind":
+"<kind>", …size}`:
+
+| kind | size field(s) | entities created per unit |
+|---|---|---|
+| `aecinput` | `channels` | `gain` (number, 0–66 dB) + `phantomPower` (switch) |
+| `input` | `channels` | same as `aecinput` (Mic/Line Input block) |
+| `meter` | `channels` | `level` (sensor, dB, 500 ms push) |
+| `level` | `channels` | `level` (number, −100…+12 dB) + `mute` (switch) |
+| `mute` | `channels` | `mute` (switch) |
+| `standardmixer` | `inputs`, `outputs` | input & output level + mute, `crosspoint` route (switch) |
+| `matrixmixer` | `inputs`, `outputs` | input & output level + mute, per-crosspoint `crosspointLevel` (number) + `crosspointLevelState` (switch) |
+
+Plus, always: a **Fault** binary_sensor (`problem`), a **Fault detail** sensor,
+and a **Firmware** sensor.
+
+### Finding your instance tags
+
+In **Tesira software**, right-click a processing block → **Properties** — the
+**Instance Tag** is what goes in `"tag"`. (Or select a block and read the Instance
+Tag field in the ribbon.) The tag is what TTP addresses, e.g. `Mixer1 get
+inputLevel 1`.
+
+### Example
+
+```json
+[
+  { "tag": "Mic1",   "kind": "input",        "channels": 2 },
+  { "tag": "Program", "kind": "level",       "channels": 2 },
+  { "tag": "AudioMeter1", "kind": "meter",   "channels": 2 },
+  { "tag": "Matrix1", "kind": "matrixmixer", "inputs": 4, "outputs": 4 }
+]
+```
+
+### YAML (optional)
+
+Used as the default for any config entry that has no design set in its options —
+handy for a single-DSP install:
+
+```yaml
+tesira_forte:
+  design:
+    - { tag: Mic1, kind: input, channels: 2 }
+    - { tag: Matrix1, kind: matrixmixer, inputs: 4, outputs: 4 }
+```
 
 ## Notes
 
-- TTP on the Forte is **unauthenticated**. Keep the control port on a trusted VLAN.
-- Mic gain is a discrete 6 dB-step preamp; the number entity is clamped to that grid.
+- Mic gain on an AEC/Mic-Line input is a discrete 6 dB-step preamp; the number
+  entity is clamped to that grid. It's also the one attribute Tesira won't let
+  you `subscribe` to, so it's polled (30 s + immediately after a write).
 - Levels use the Tesira −100…+12 dB fader range.
 - The fault poll (15 s) doubles as the session keepalive; a stalled session
   reconnects with exponential backoff and re-subscribes everything.
+- If your firmware rejects `subscribe` on an attribute this integration expects
+  to be subscribable, please open an issue with the model + firmware version.
+
+## License
+
+MIT
