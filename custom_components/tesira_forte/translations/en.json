@@ -11,7 +11,7 @@
       },
       "design": {
         "title": "Confirm the DSP design",
-        "description": "Read {count} controllable block(s) from the device. Edit or trim the list, then submit. Each entry is `{{\"tag\": \"instanceTag\", \"kind\": \"kind\", ...}}` - kinds: aecinput, input, meter, level, mute (take `channels`); standardmixer, matrixmixer (take `inputs` and `outputs`). {error_detail}",
+        "description": "Read {count} controllable block(s) from the running design. Review or trim the JSON list below, then submit. Each entry needs a tag (the block's instance tag), a kind, and its size: aecinput, input, meter, level and mute take channels; standardmixer and matrixmixer take inputs and outputs. {error_detail}",
         "data": {
           "design": "Design (JSON)"
         }
@@ -31,7 +31,7 @@
     "step": {
       "init": {
         "title": "DSP design",
-        "description": "A JSON list of the DSP blocks to expose, each `{{\"tag\": \"instanceTag\", \"kind\": \"kind\", ...}}`. Kinds: aecinput, input, meter, level, mute (all take `channels`); standardmixer, matrixmixer (take `inputs` and `outputs`). Find instance tags in Tesira software (right-click a block, then Properties), or tick \"Re-discover from device\" to pull the current design over TTP. {error_detail}",
+        "description": "The DSP blocks to expose, as a JSON list. Each entry needs a tag, a kind, and size fields: aecinput, input, meter, level and mute take channels; standardmixer and matrixmixer take inputs and outputs. Instance tags come from Tesira software (right-click a block, then Properties). Tick Re-discover from device to pull the current design from the Tesira over TTP. {error_detail}",
         "data": {
           "design": "Design (JSON)",
           "rediscover": "Re-discover from device"
