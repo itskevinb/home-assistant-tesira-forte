@@ -21,7 +21,7 @@
     "step": {
       "init": {
         "title": "DSP design",
-        "description": "A JSON list of the DSP blocks to expose, each `{\"tag\": \"<instanceTag>\", \"kind\": \"<kind>\", ...}`. Kinds: aecinput, input, meter, level, mute (all take `channels`); standardmixer, matrixmixer (take `inputs` and `outputs`). Find instance tags in Tesira software (right-click a block → Properties). Leave the shipped example if you just want to try it. {error_detail}",
+        "description": "A JSON list of the DSP blocks to expose, each `{\"tag\": \"instanceTag\", \"kind\": \"kind\", ...}`. Kinds: aecinput, input, meter, level, mute (all take `channels`); standardmixer, matrixmixer (take `inputs` and `outputs`). Find instance tags in Tesira software (right-click a block, then Properties). Leave the shipped example if you just want to try it. {error_detail}",
         "data": {
           "design": "Design (JSON)"
         }
