@@ -17,8 +17,10 @@ availability.
 from __future__ import annotations
 
 import asyncio
-import logging
 from collections.abc import Awaitable, Callable
+import contextlib
+from contextlib import asynccontextmanager
+import logging
 import re
 
 _LOGGER = logging.getLogger(__name__)
@@ -281,32 +283,48 @@ class TesiraTTP:
             finally:
                 self._reply = None
 
-    # -- one-shot probe for the config flow -----------------------
+    # -- one-shot session for the config flow --------------------
+    @classmethod
+    @asynccontextmanager
+    async def oneshot(cls, host: str, port: int, *, timeout: float = 10):
+        """Yield a short-lived connected client for the config/options flow.
+
+        Handles telnet negotiation + ``SESSION set verbose false`` and runs a
+        background reader so ``get_value()`` works normally; tears everything
+        down on exit. Not for long-running use - the main integration uses the
+        full ``start()`` loop with auto-reconnect.
+        """
+        client = cls(host, port)
+        client._reader, client._writer = await asyncio.wait_for(
+            asyncio.open_connection(host, port), timeout=timeout
+        )
+        await client._telnet_prologue()
+        await client._send_raw("SESSION set verbose false")
+        await client._drain(0.7)
+
+        async def _pump() -> None:
+            try:
+                while True:
+                    data = await client._reader.readline()
+                    if not data:
+                        return
+                    client._dispatch(client._clean(data))
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("oneshot reader ended", exc_info=True)
+
+        pump = asyncio.create_task(_pump(), name="tesira-oneshot")
+        try:
+            yield client
+        finally:
+            pump.cancel()
+            with contextlib.suppress(BaseException):
+                await pump
+            client._writer.close()
+
     @classmethod
     async def probe(cls, host: str, port: int) -> str:
         """Open a short session and return the device serial number."""
-        client = cls(host, port)
-        reader, writer = await asyncio.wait_for(
-            asyncio.open_connection(host, port), timeout=10
-        )
-        client._reader, client._writer = reader, writer
-        try:
-            await client._telnet_prologue()
-            await client._send_raw("SESSION set verbose false")
-            await client._drain(0.7)
-            loop = asyncio.get_running_loop()
-            client._reply = loop.create_future()
-            client._reply_wants_value = True
-            await client._send_raw("DEVICE get serialNumber")
-
-            async def _pump() -> None:
-                while not (client._reply and client._reply.done()):
-                    data = await reader.readline()
-                    if data == b"":
-                        raise TTPError("connection closed during probe")
-                    client._dispatch(client._clean(data))
-
-            await asyncio.wait_for(_pump(), timeout=8)
-            return client._reply.result()
-        finally:
-            writer.close()
+        async with cls.oneshot(host, port) as client:
+            return await client.get_value("DEVICE get serialNumber", timeout=8)

@@ -26,10 +26,11 @@ FAULT_POLL_INTERVAL = 15
 # AudioMeter subscription push rate (ms).
 METER_RATE_MS = 500
 
-# Supported DSP block kinds. A Tesira design is NOT discoverable over TTP, so
-# the user declares their blocks (instance tag + kind + size) via the options
-# flow or YAML; see README. Each entry: {"tag": <instanceTag>, "kind": <one of
-# these>, ...size fields}.
+# Supported DSP block kinds. The config flow auto-discovers the running design
+# over TTP (SESSION get aliases + per-block attribute probing; see discovery.py)
+# and the user reviews it; it can also be edited by hand or re-pulled from the
+# options flow, or seeded from YAML. Each entry: {"tag": <instanceTag>, "kind":
+# <one of these>, ...size fields}.
 #
 #   aecinput / input   channels          -> per ch: gain (number), phantomPower (switch)
 #   meter              channels          -> per ch: level (sensor, dB)
@@ -42,12 +43,12 @@ BLOCK_KINDS = frozenset(
     {"aecinput", "input", "meter", "level", "mute", "standardmixer", "matrixmixer"}
 )
 
-# Shipped as the default when nothing is configured. This is one real Forte
-# used as a phantom-power mic pre feeding a small mixer -- replace it with your
-# own design in the integration's options.
+# Fallback only. The config flow discovers the real design from the device;
+# this generic 3-block list is used just to seed the review step (or an entry
+# with no design) if discovery is skipped or the device returns nothing. The
+# tags are Tesira's stock default block names.
 DEFAULT_DESIGN: list[dict] = [
-    {"tag": "AecInput1", "kind": "aecinput", "channels": 12},
+    {"tag": "AecInput1", "kind": "aecinput", "channels": 2},
     {"tag": "AudioMeter1", "kind": "meter", "channels": 2},
-    {"tag": "Mixer1", "kind": "standardmixer", "inputs": 2, "outputs": 1},
-    {"tag": "Mixer2", "kind": "matrixmixer", "inputs": 2, "outputs": 4},
+    {"tag": "Mixer1", "kind": "matrixmixer", "inputs": 4, "outputs": 4},
 ]

@@ -3,15 +3,25 @@
     "step": {
       "user": {
         "title": "Biamp Tesira",
-        "description": "Enter the Tesira's control-network address. It speaks the Tesira Text Protocol on TCP port 23 with no authentication.",
+        "description": "Enter the Tesira's control-network address. It speaks the Tesira Text Protocol on TCP port 23 with no authentication. The running design is read from the device on the next step.",
         "data": {
           "host": "Host",
           "port": "Port"
         }
+      },
+      "design": {
+        "title": "Confirm the DSP design",
+        "description": "Read {count} controllable block(s) from the device. Edit or trim the list, then submit. Each entry is `{{\"tag\": \"instanceTag\", \"kind\": \"kind\", ...}}` - kinds: aecinput, input, meter, level, mute (take `channels`); standardmixer, matrixmixer (take `inputs` and `outputs`). {error_detail}",
+        "data": {
+          "design": "Design (JSON)"
+        }
       }
     },
     "error": {
-      "cannot_connect": "Could not reach the Tesira over TTP. Check the IP and that port 23 is open."
+      "cannot_connect": "Could not reach the Tesira over TTP. Check the IP and that port 23 is open.",
+      "cannot_discover": "Connected, but no controllable blocks were found in the running design.",
+      "invalid_json": "That isn't valid JSON.",
+      "invalid_design": "The design list is invalid."
     },
     "abort": {
       "already_configured": "This Tesira is already configured."
@@ -21,13 +31,16 @@
     "step": {
       "init": {
         "title": "DSP design",
-        "description": "A JSON list of the DSP blocks to expose, each `{{\"tag\": \"instanceTag\", \"kind\": \"kind\", ...}}`. Kinds: aecinput, input, meter, level, mute (all take `channels`); standardmixer, matrixmixer (take `inputs` and `outputs`). Find instance tags in Tesira software (right-click a block, then Properties). Leave the shipped example if you just want to try it. {error_detail}",
+        "description": "A JSON list of the DSP blocks to expose, each `{{\"tag\": \"instanceTag\", \"kind\": \"kind\", ...}}`. Kinds: aecinput, input, meter, level, mute (all take `channels`); standardmixer, matrixmixer (take `inputs` and `outputs`). Find instance tags in Tesira software (right-click a block, then Properties), or tick \"Re-discover from device\" to pull the current design over TTP. {error_detail}",
         "data": {
-          "design": "Design (JSON)"
+          "design": "Design (JSON)",
+          "rediscover": "Re-discover from device"
         }
       }
     },
     "error": {
+      "cannot_connect": "Could not reach the Tesira over TTP.",
+      "cannot_discover": "Connected, but no controllable blocks were found in the running design.",
       "invalid_json": "That isn't valid JSON.",
       "invalid_design": "The design list is invalid."
     }

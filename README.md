@@ -22,12 +22,21 @@ the DSP's control-network IP (port 23).
 
 > TTP on the Tesira is **unauthenticated**. Keep the control port on a trusted VLAN.
 
-## Telling it about your design
+## The design is auto-discovered
 
-A Tesira design is **not discoverable** over TTP — there is no "list all blocks"
-command — so you tell the integration which blocks to expose. Out of the box it
-loads a small **example design** so you can see it work; replace it with yours in
-**the integration's ⚙ → Configure** (or via YAML, below).
+On setup the integration connects and reads the **running design** off the device
+— `SESSION get aliases` lists every instance tag, and each block is then probed
+(`get numInputs` / `numChannels` / `crosspointLevel` / `gain` …) to work out its
+kind and size. The setup flow shows you the result as an editable JSON list so
+you can **trim or tweak it before it's saved** (discovery errs toward including a
+block; EQ / filter / generator / crossover blocks that expose nothing drivable
+are left out automatically).
+
+Afterwards, edit the list any time in **the integration's ⚙ → Configure**, or
+tick **Re-discover from device** there to pull it again.
+
+A `tesira_forte:` block in `configuration.yaml` (see below) still works and, if
+present, seeds an entry that has no design of its own.
 
 The design is a **JSON list of blocks**, each `{"tag": "<instanceTag>", "kind":
 "<kind>", …size}`:
@@ -45,11 +54,12 @@ The design is a **JSON list of blocks**, each `{"tag": "<instanceTag>", "kind":
 Plus, always: a **Fault** binary_sensor (`problem`), a **Fault detail** sensor,
 and a **Firmware** sensor.
 
-### Finding your instance tags
+### Finding an instance tag by hand
 
-In **Tesira software**, right-click a processing block → **Properties** — the
-**Instance Tag** is what goes in `"tag"`. (Or select a block and read the Instance
-Tag field in the ribbon.) The tag is what TTP addresses, e.g. `Mixer1 get
+Discovery names blocks for you, but if you're adding one manually: in **Tesira
+software**, right-click a processing block → **Properties** — the **Instance
+Tag** is what goes in `"tag"`. (Or select a block and read the Instance Tag
+field in the ribbon.) The tag is what TTP addresses, e.g. `Mixer1 get
 inputLevel 1`.
 
 ### Example
