@@ -1,0 +1,20 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Biamp Tesira Forte",
+        "description": "Enter the Forte's control-network address. It speaks the Tesira Text Protocol on TCP port 23 with no authentication.",
+        "data": {
+          "host": "Host",
+          "port": "Port"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not reach the Tesira over TTP. Check the IP and that port 23 is open."
+    },
+    "abort": {
+      "already_configured": "This Tesira Forte is already configured."
+    }
+  }
+}
