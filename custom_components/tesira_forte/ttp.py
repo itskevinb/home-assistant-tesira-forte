@@ -34,6 +34,11 @@ _FAULT_RE = re.compile(r'\[(\d+)\s+"([^"]*)"')
 PublishCb = Callable[[str, str], None]
 FaultCb = Callable[[list[tuple[int, str]]], None]
 
+# After a correlated command times out its reply may still be in flight. TTP
+# answers commands in order, so the next +OK/-ERR would be that stale reply.
+# Before the next correlated command we wait this long for it and drop it.
+_LATE_REPLY_GRACE = 3.0
+
 
 class TTPError(Exception):
     """A TTP command returned -ERR or the session failed."""
@@ -67,6 +72,10 @@ class TesiraTTP:
         self._cmd_lock = asyncio.Lock()
         self._reply: asyncio.Future[str] | None = None
         self._reply_wants_value = False
+        # Replies still owed for correlated commands that timed out.
+        self._late_replies = 0
+        self._late_drained = asyncio.Event()
+        self._late_drained.set()
         self._connected = asyncio.Event()
         self._closing = False
 
@@ -118,6 +127,7 @@ class TesiraTTP:
         self._reader, self._writer = await asyncio.wait_for(
             asyncio.open_connection(self.host, self.port), timeout=10
         )
+        self._reset_late_replies()
         await self._telnet_prologue()
         await self._send_raw("SESSION set verbose false")
         # Consume the banner + the ack for the line above so the first real
@@ -217,6 +227,15 @@ class TesiraTTP:
                     [(int(fid), txt) for fid, txt in _FAULT_RE.findall(line)]
                 )
             return
+        if (line.startswith(("+OK", "-ERR")) and self._reply is None
+                and self._late_replies):
+            # Stale reply to a command that already timed out: drop it so it
+            # can't be taken as the answer to the next command.
+            _LOGGER.debug("Discarding late TTP reply: %s", line)
+            self._late_replies -= 1
+            if not self._late_replies:
+                self._late_drained.set()
+            return
         if line.startswith("+OK"):
             payload = line[3:].strip()
             if payload.startswith('"') and payload.endswith('"'):
@@ -230,6 +249,32 @@ class TesiraTTP:
         if line.startswith("-ERR"):
             if self._reply and not self._reply.done():
                 self._reply.set_exception(TTPError(line))
+
+    # -- late-reply bookkeeping ------------------------------------
+    def _reset_late_replies(self) -> None:
+        self._late_replies = 0
+        self._late_drained.set()
+
+    def _note_late_reply(self) -> None:
+        self._late_replies += 1
+        self._late_drained.clear()
+
+    async def _await_late_replies(self) -> None:
+        """Before a correlated command, let owed late replies arrive and drop.
+
+        Bounded: if a reply never comes we give up after the grace period
+        rather than discarding a later, legitimate reply.
+        """
+        if not self._late_replies:
+            return
+        try:
+            await asyncio.wait_for(self._late_drained.wait(), _LATE_REPLY_GRACE)
+        except asyncio.TimeoutError:
+            _LOGGER.debug(
+                "%d late TTP repl(y/ies) never arrived; continuing",
+                self._late_replies,
+            )
+        self._reset_late_replies()
 
     # -- outbound -------------------------------------------------
     async def _send_raw(self, line: str) -> None:
@@ -250,12 +295,16 @@ class TesiraTTP:
         concurrent set can't satisfy this future.
         """
         async with self._cmd_lock:
+            await self._await_late_replies()
             loop = asyncio.get_running_loop()
             self._reply = loop.create_future()
             self._reply_wants_value = True
             try:
                 await self._send_raw(cmd)
                 return await asyncio.wait_for(self._reply, timeout)
+            except asyncio.TimeoutError:
+                self._note_late_reply()
+                raise
             finally:
                 self._reply = None
 
@@ -272,13 +321,17 @@ class TesiraTTP:
     ) -> None:
         idx_str = " ".join(str(i) for i in idx)
         async with self._cmd_lock:
+            await self._await_late_replies()
             loop = asyncio.get_running_loop()
             self._reply = loop.create_future()
             self._reply_wants_value = False
             try:
                 await self._send_raw(f"{block} set {attr} {idx_str} {value}")
                 await asyncio.wait_for(self._reply, 3.0)
-            except (asyncio.TimeoutError, TTPError) as err:
+            except asyncio.TimeoutError as err:
+                self._note_late_reply()
+                _LOGGER.debug("set %s %s %s: %s", block, attr, idx_str, err)
+            except TTPError as err:
                 _LOGGER.debug("set %s %s %s: %s", block, attr, idx_str, err)
             finally:
                 self._reply = None
